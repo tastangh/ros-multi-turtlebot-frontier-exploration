@@ -21,9 +21,10 @@ mkdir -p ~/robotlar_ws/src
 cd ~/robotlar_ws/src
 
 # PDF'te verilen resmi kaynaklardan klonlama
-git clone https://gitlab.com/blm6191_2425b/blm6191/turtlebot3.git
-git clone https://gitlab.com/blm6191_2425b/blm6191/turtlebot3_simulations.git
-git clone https://gitlab.com/blm6191_2425b/blm6191/micromouse_maze.git
+git clone https://gitlab.com/blm6191_2425b_tai/blm6191/turtlebot3.git
+
+git clone https://gitlab.com/blm6191_2425b_tai/blm6191/turtlebot3_simulations.git
+git clone https://gitlab.com/blm6191_2425b_tai/blm6191/micromouse_maze.git
 ```
 
 ### 3. Workspace Derleme
