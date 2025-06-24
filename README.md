@@ -18,7 +18,10 @@ sudo apt-get install ros-noetic-multirobot-map-merge
 
 ```bash
 mkdir -p ~/robotlar_ws/src
-cd ~/robotlar_ws/src
+
+git clone https://github.com/tastangh/ros-multi-turtlebot-frontier-exploration.git
+
+cd ~/robotlar_ws/src/ros-multi-turtlebot-frontier-exploration
 
 # PDF'te verilen resmi kaynaklardan klonlama
 git clone https://gitlab.com/blm6191_2425b_tai/blm6191/turtlebot3.git
