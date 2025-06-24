@@ -21,7 +21,7 @@ mkdir -p ~/robotlar_ws/src
 cd ~/robotlar_ws/src
 
 # This repository
-git clone https://github.com/<your-username>/multi-tb3-frontier-explore.git
+git clone https://github.com/tastangh/ros-multi-turtlebot-frontier-exploration.git
 
 # TurtleBot3 core repos
 git clone https://github.com/ROBOTIS-GIT/turtlebot3.git
