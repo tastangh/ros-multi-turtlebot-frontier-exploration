@@ -1,38 +1,40 @@
 # multi-tb3-frontier-explore
 
-## Project Description
+## 📘 Proje Tanımı
 
-This project implements a **multi-robot frontier exploration** system using **four TurtleBot3 (burger model)** robots in a **ROS1 Noetic** environment. Each robot performs SLAM with `gmapping`, shares maps using `multirobot_map_merge`, and explores the environment using a custom **frontier-based planner** node.
+Bu proje, ROS Noetic ortamında dört adet TurtleBot3 (burger modeli) robot ile **çok robotlu frontier tabanlı keşif sistemi** geliştirmektedir. Her robot `gmapping` ile SLAM gerçekleştirir, `multirobot_map_merge` ile haritalar birleştirilir ve `move_base` altyapısı ile keşif yapılır.
 
 ---
 
-## 🧱 Repository Structure & Setup
+## 📦 Gereksinimler ve Kurulum
 
-### 1. Install necessary packages
+### 1. Gerekli Paketlerin Kurulumu
 
 ```bash
 sudo apt-get install ros-noetic-multirobot-map-merge
 ```
 
-### 2. Clone this repository and dependencies
+### 2. Catkin workspace ve bağımlılıkların klonlanması
 
 ```bash
 mkdir -p ~/robotlar_ws/src
 cd ~/robotlar_ws/src
 
-# This repository
-git clone https://github.com/tastangh/ros-multi-turtlebot-frontier-exploration.git
+# PDF'te verilen resmi kaynaklardan klonlama
+git clone https://gitlab.com/blm6191_2425b/blm6191/turtlebot3.git
+git clone https://gitlab.com/blm6191_2425b/blm6191/turtlebot3_simulations.git
+git clone https://gitlab.com/blm6191_2425b/blm6191/micromouse_maze.git
+```
 
-# TurtleBot3 core repos
-git clone https://github.com/ROBOTIS-GIT/turtlebot3.git
-git clone https://github.com/ROBOTIS-GIT/turtlebot3_simulations.git
+### 3. Workspace Derleme
 
+```bash
 cd ~/robotlar_ws
-rosdep install --from-paths src --ignore-src -r -y
+rosdep install --from-paths src --ignore-src --rosdistro noetic -y
 catkin_make
 ```
 
-### 3. Update `.bashrc`
+### 4. Ortam Değişkenleri
 
 ```bash
 echo "source ~/robotlar_ws/devel/setup.bash" >> ~/.bashrc
@@ -42,9 +44,7 @@ source ~/.bashrc
 
 ---
 
-## 🚀 Launch Simulation
-
-Start the simulation and visualization tools:
+## 🚀 Simülasyonu Başlatma
 
 ```bash
 roslaunch micromouse_maze micromouse_maze3_multi.launch
@@ -56,66 +56,55 @@ roslaunch micromouse_maze multi_robot_rviz.launch
 
 ---
 
-## 🧠 Start Frontier Exploration Node
+## 🤖 Frontier Tabanlı Keşif Node'u
 
 ```bash
 rosrun multirobot_exploration_mapping frontier_explorer_node
 ```
 
----
-
-## 🛠️ How the Frontier Explorer Works
-
-### Steps:
-
-1. **Map Listening**  
-   Subscribes to `/map` and extracts unexplored boundary regions (frontiers).
-
-2. **Region Detection**  
-   Segments border edges and computes centroids of reachable frontiers.
-
-3. **Robot State Tracking**  
-   Uses TF to locate each robot's pose with respect to the map frame.
-
-4. **Target Assignment**  
-   Assigns each robot to the nearest frontier point based on its position.
-
-5. **Goal Sending & Monitoring**  
-   Sends `move_base` goals and tracks completion using `actionlib`.
-
-6. **Failure Recovery**  
-   If the robot gets stuck or fails to reach, a new goal is automatically sent.
+Her robot `/map` mesajına abone olur, frontier bölgelerini tespit eder, TF ile konumunu bulur ve en yakın keşfedilmemiş noktaya hedef atar. Hedefe ulaşan robota yeni hedef atanır.
 
 ---
 
-## 📷 Visual Results
+## 🔄 Çalışma Adımları
 
-### Console Output
-![console_output](console_output.png)
+1. `/map` mesajı alındığında frontier sınırları belirlenir.
+2. Bu sınırlar bölgelere ayrılır ve merkez noktaları hesaplanır.
+3. Her robot TF ile kendi konumunu bulur.
+4. En yakın hedefe `MoveBaseAction` kullanılarak komut gönderilir.
+5. Robot ilerleyemezse veya hedefe ulaşırsa yeni hedef atanır.
 
-### Initial Exploration State
-![start](exploration_start.png)
+---
 
-### Exploration Progress
-![progress](exploration_progress.png)
+## 🖼️ Örnek Çıktılar
 
-### TF Tree
+### 🧭 TF Ağaç Yapısı
 ![tf_tree](tf_tree.png)
 
----
+### 🧪 Terminal Çıktısı
+![console_output](console_output.png)
 
-## ✅ Conclusion
+### 🚥 Keşif Başlangıcı
+![start](exploration_start.png)
 
-This project demonstrates the integration of:
-- multi-robot SLAM
-- map merging
-- autonomous frontier detection
-- ROS action-based goal planning
-
-The system is robust to failed goals and dynamically assigns new targets in a decentralized fashion.
+### 🚗 Keşif İlerlemesi
+![progress](exploration_progress.png)
 
 ---
 
-### 👤 Developed for:
-**BLM6191 - Robotlar Dersi**  
-**Yıldız Teknik Üniversitesi, 2025 Final Projesi**
+## 📎 Ek Bilgiler
+
+- Rviz üzerinden her bir robota `/tb3_X/move_base_simple/goal` topic'ine hedef gönderilerek manuel test yapılabilir.
+- Hedef atama işlemleri `move_base` üzerinden action tabanlı gerçekleşir.
+- Sistem her robot için thread ile çalıştığından terminal çıktılarında `[tb3_0]`, `[tb3_1]` gibi etiketlemeler kullanılmıştır.
+
+---
+
+## 📍 Proje Bilgisi
+
+- **Ders:** BLM6191 - Robotlar
+- **Üniversite:** Yıldız Teknik Üniversitesi
+- **Tarih:** Haziran 2025
+- **Teslim:** GitLab grubu üzerinden `.git` projesi halinde teslim edilecektir.
+
+---
