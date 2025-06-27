@@ -50,6 +50,16 @@ source ~/.bashrc
 
 ## 🚀 Simülasyonu Başlatma
 
+## Önerilen Yöntem: Tek Komut ile Başlatma
+
+Projenin tüm bileşenlerini (Gazebo simülasyonu, harita birleştirme, SLAM, navigasyon, RViz ve keşif düğümü) tek bir komutla başlatmak için bir ana launch dosyası oluşturulmuştur.
+
+```bash
+roslaunch multirobot_exploration_mapping tam_kesif_sistemi.launch
+```
+
+## Alternatif: Adım Adım Manuel Başlatma
+
 ```bash
 roslaunch micromouse_maze micromouse_maze3_multi.launch
 roslaunch turtlebot3_gazebo multi_map_merge.launch
@@ -59,9 +69,6 @@ roslaunch micromouse_maze multi_robot_rviz.launch
 ```
 
 ---
-
-
-## 🤖 Frontier Tabanlı Keşif Node'u
 
 ```bash
 rosrun multirobot_exploration_mapping frontier_explorer_node

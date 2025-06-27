@@ -1,0 +1,18 @@
+<launch>
+    <include file="$(find micromouse_maze)/launch/micromouse_maze3_multi.launch" />
+
+    <include file="$(find turtlebot3_gazebo)/launch/multi_map_merge.launch" />
+
+    <include file="$(find turtlebot3_gazebo)/launch/multi_turtlebot3_slam.launch" />
+
+    <include file="$(find turtlebot3_navigation)/launch/multi_move_base.launch" />
+
+    <include file="$(find micromouse_maze)/launch/multi_robot_rviz.launch" />
+
+    <node pkg="multirobot_exploration_mapping"
+          type="frontier_explorer_node"
+          name="frontier_explorer_node"
+          output="screen">
+    </node>
+
+</launch>
