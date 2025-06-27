@@ -1,5 +1,5 @@
-#ifndef MULTI_ROBOT_EXPLORER_H
-#define MULTI_ROBOT_EXPLORER_H
+#ifndef FRONTIER_EXPLORER_NODE_H
+#define FRONTIER_EXPLORER_NODE_H
 
 #include <ros/ros.h>
 #include <nav_msgs/OccupancyGrid.h>
@@ -14,37 +14,71 @@
 #include <cmath>
 #include <algorithm>
 
+// Eylem istemcisi için bir tür takma adı tanımlıyoruz.
 typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
 
-class MultiRobotExplorer
+/**
+ * @class FrontierExplorerNode
+ * @brief Çoklu robotla otonom keşif görevini yöneten sınıf.
+ *
+ * Bu sınıf, bir haritayı dinler, keşfedilmemiş sınırları tespit eder,
+ * bu sınırları kümeleyerek hedef noktalar oluşturur ve bu hedefleri
+ * mevcut robotlara atar.
+ */
+class FrontierExplorerNode
 {
 public:
-    MultiRobotExplorer(ros::NodeHandle &nh);
-    void explore();
+    // Kurucu fonksiyon, ROS düğüm tanıtıcısını alır.
+    FrontierExplorerNode(ros::NodeHandle &nh);
+    
+    // Keşif sürecini başlatan ana döngü.
+    void runExplorationLoop();
 
 private:
-    void mapCallback(const nav_msgs::OccupancyGrid::ConstPtr &msg);
-    void assignGoals();
-    std::vector<geometry_msgs::Point> findFrontiers();
-    std::vector<geometry_msgs::Point> clusterFrontiers(const std::vector<geometry_msgs::Point> &frontiers, double distance_threshold);
-    geometry_msgs::Point getRobotPosition(int robot_index);
-    void goalDoneCallback(const actionlib::SimpleClientGoalState &state, const move_base_msgs::MoveBaseResultConstPtr &result, int robot_index);
+    // Gelen harita verilerini işleyen callback fonksiyonu.
+    void handleMapUpdate(const nav_msgs::OccupancyGrid::ConstPtr &msg);
 
-    ros::NodeHandle nh_;
-    ros::Subscriber map_subscriber_;
+    // Boştaki robotlara yeni hedefler (sınırlar) atayan ana mantık fonksiyonu.
+    void dispatchTasksToRobots();
 
-    int num_robots_;
-    std::vector<MoveBaseClient *> action_clients_;
-    std::vector<bool> robot_is_busy_;
-    std::vector<std::string> robot_names_;
-    std::vector<geometry_msgs::Point> assigned_frontiers_;
-    std::vector<geometry_msgs::Point> blacklisted_frontiers_;
+    // Harita üzerinde keşfedilmemiş alanların kenarlarını (sınırları) bulan fonksiyon.
+    std::vector<geometry_msgs::Point> identifyExplorationBoundaries();
 
-    nav_msgs::OccupancyGrid current_map_;
-    bool map_received_ = false;
+    // Bulunan sınır noktalarını, birbirlerine olan yakınlıklarına göre gruplayan fonksiyon.
+    std::vector<geometry_msgs::Point> groupFrontierPoints(const std::vector<geometry_msgs::Point> &frontiers, double clustering_radius);
 
-    tf2_ros::Buffer tf_buffer_;
-    tf2_ros::TransformListener tf_listener_;
+    // Belirtilen index'teki robotun anlık konumunu TF (Transform) kütüphanesi ile sorgular.
+    geometry_msgs::Point queryRobotPose(int robot_index);
+
+    // Bir robot hedefine ulaştığında veya ulaşamadığında tetiklenen callback fonksiyonu.
+    void onGoalCompletion(const actionlib::SimpleClientGoalState &state, const move_base_msgs::MoveBaseResultConstPtr &result, int robot_index);
+
+    // ROS Düğüm Tanıtıcısı
+    ros::NodeHandle nodeHandle_;
+    // Harita verilerini dinleyen abone
+    ros::Subscriber mapSub_;
+
+    // Toplam robot sayısı
+    int robotCount_;
+    // Her robot için MoveBase eylem istemcileri
+    std::vector<MoveBaseClient *> moveBaseClients_;
+    // Robotların meşgul olup olmadığını tutan bayraklar
+    std::vector<bool> isRobotActive_;
+    // Robotların isim alanları (örn: "tb3_0", "tb3_1")
+    std::vector<std::string> robotNamespaces_;
+    // Her robota atanmış olan mevcut hedef noktaları
+    std::vector<geometry_msgs::Point> activeGoals_;
+    // Ulaşılamayan veya başarısız olan hedeflerin listesi
+    std::vector<geometry_msgs::Point> failedGoalPoints_;
+
+    // En son alınan harita verisi
+    nav_msgs::OccupancyGrid latestMapData_;
+    // Haritanın alınıp alınmadığını belirten bayrak
+    bool isMapReady_ = false;
+
+    // TF dönüşümleri için buffer ve listener
+    tf2_ros::Buffer transformBuffer_;
+    tf2_ros::TransformListener transformListener_;
 };
 
-#endif
+#endif // FRONTIER_EXPLORER_NODE_H

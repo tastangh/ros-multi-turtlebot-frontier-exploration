@@ -1,302 +1,314 @@
 #include "frontier_explorer_node.h"
 
-MultiRobotExplorer::MultiRobotExplorer(ros::NodeHandle &nh) : nh_(nh), tf_listener_(tf_buffer_)
+// Sınıfın kurucu fonksiyonu
+FrontierExplorerNode::FrontierExplorerNode(ros::NodeHandle &nh) : nodeHandle_(nh), transformListener_(transformBuffer_)
 {
-    nh_.param("num_robots", num_robots_, 4);
+    // Parametre sunucusundan robot sayısını oku, varsayılan değer 4
+    nodeHandle_.param("num_robots", robotCount_, 4);
 
-    robot_names_.resize(num_robots_);
-    for (int i = 0; i < num_robots_; ++i)
+    // Robot isimlerini ve ilgili yapıları boyutlandır
+    robotNamespaces_.resize(robotCount_);
+    for (int i = 0; i < robotCount_; ++i)
     {
-        robot_names_[i] = "tb3_" + std::to_string(i);
+        robotNamespaces_[i] = "tb3_" + std::to_string(i);
     }
 
-    map_subscriber_ = nh_.subscribe("/map", 1, &MultiRobotExplorer::mapCallback, this);
+    // Harita topic'ine abone ol
+    mapSub_ = nodeHandle_.subscribe("/map", 1, &FrontierExplorerNode::handleMapUpdate, this);
 
-    robot_is_busy_.resize(num_robots_, false);
-    action_clients_.resize(num_robots_);
-    assigned_frontiers_.resize(num_robots_);
+    // Robotların durumlarını ve eylem istemcilerini başlat
+    isRobotActive_.resize(robotCount_, false);
+    moveBaseClients_.resize(robotCount_);
+    activeGoals_.resize(robotCount_);
 
-    for (int i = 0; i < num_robots_; ++i)
+    for (int i = 0; i < robotCount_; ++i)
     {
-        std::string action_server_name = "/" + robot_names_[i] + "/move_base";
-        action_clients_[i] = new MoveBaseClient(action_server_name, true);
+        std::string serverName = "/" + robotNamespaces_[i] + "/move_base";
+        moveBaseClients_[i] = new MoveBaseClient(serverName, true);
 
-        ROS_INFO("Robot %d icin action sunucusu bekleniyor: %s", i, action_server_name.c_str());
-        if (!action_clients_[i]->waitForServer(ros::Duration(5.0)))
+        ROS_INFO("Robot %d icin eylem sunucusu bekleniyor: %s", i, serverName.c_str());
+        if (!moveBaseClients_[i]->waitForServer(ros::Duration(5.0)))
         {
-            ROS_ERROR("Robot %d icin action sunucusu bulunamadi!", i);
+            ROS_ERROR("HATA: Robot %d icin eylem sunucusu %s bulunamadi!", i, serverName.c_str());
         }
         else
         {
-            ROS_INFO("Robot %d icin action sunucusu bulundu.", i);
+            ROS_INFO("Robot %d icin eylem sunucusu baglantisi basarili.", i);
         }
     }
 }
 
-void MultiRobotExplorer::mapCallback(const nav_msgs::OccupancyGrid::ConstPtr &msg)
+// Keşif döngüsünü çalıştıran ana fonksiyon
+void FrontierExplorerNode::runExplorationLoop()
 {
-    current_map_ = *msg;
-    map_received_ = true;
-    ROS_INFO_ONCE("Ilk harita alindi. Kesif basliyor...");
+    ros::Rate loopRate(1.0); // Döngü frekansını 1 Hz olarak ayarla
+    while (ros::ok())
+    {
+        dispatchTasksToRobots();
+        ros::spinOnce();
+        loopRate.sleep();
+    }
 }
 
-geometry_msgs::Point MultiRobotExplorer::getRobotPosition(int robot_index)
+// Harita güncellemesini işleyen fonksiyon
+void FrontierExplorerNode::handleMapUpdate(const nav_msgs::OccupancyGrid::ConstPtr &msg)
 {
-    geometry_msgs::TransformStamped transformStamped;
+    latestMapData_ = *msg;
+    if (!isMapReady_)
+    {
+        isMapReady_ = true;
+        ROS_INFO_ONCE("Ilk harita verisi alindi. Kesif operasyonu basliyor...");
+    }
+}
+
+// Bir robotun görev tamamlama durumunu işleyen callback
+void FrontierExplorerNode::onGoalCompletion(const actionlib::SimpleClientGoalState &state, const move_base_msgs::MoveBaseResultConstPtr &result, int robot_index)
+{
+    if (state == actionlib::SimpleClientGoalState::SUCCEEDED)
+    {
+        ROS_INFO("Robot %d gorevini basariyla tamamladi.", robot_index);
+    }
+    else
+    {
+        ROS_WARN("Robot %d hedefine ulasamadi. Durum: %s", robot_index, state.toString().c_str());
+        // Başarısız hedefi kara listeye ekle
+        failedGoalPoints_.push_back(activeGoals_[robot_index]);
+        ROS_INFO("Basarisiz hedef [x:%.2f, y:%.2f] kara listeye eklendi.", activeGoals_[robot_index].x, activeGoals_[robot_index].y);
+    }
+    // Robotu tekrar "boşta" olarak işaretle
+    isRobotActive_[robot_index] = false;
+}
+
+// Robotlara yeni görevler (hedefler) atayan merkezi fonksiyon
+void FrontierExplorerNode::dispatchTasksToRobots()
+{
+    if (!isMapReady_)
+    {
+        ROS_INFO_THROTTLE(5, "Harita bekleniyor, hedef atama ertelendi.");
+        return;
+    }
+
+    auto boundaryPoints = identifyExplorationBoundaries();
+    if (boundaryPoints.empty())
+    {
+        bool isAnyRobotActive = false;
+        for (const auto &status : isRobotActive_)
+        {
+            if (status) isAnyRobotActive = true;
+        }
+
+        if (!isAnyRobotActive)
+        {
+            ROS_INFO("Tum robotlar bosta ve yeni sinir noktasi bulunamadi. Kesif tamamlaniyor.");
+            ros::shutdown();
+        }
+        else
+        {
+            ROS_INFO_THROTTLE(10, "Yeni sinir noktasi yok, aktif robotlarin gorevlerini bitirmesi bekleniyor.");
+        }
+        return;
+    }
+
+    auto frontierCentroids = groupFrontierPoints(boundaryPoints, 1.0);
+
+    for (int i = 0; i < robotCount_; ++i)
+    {
+        if (!isRobotActive_[i])
+        {
+            geometry_msgs::Point currentRobotPose = queryRobotPose(i);
+            if (!std::isfinite(currentRobotPose.x)) continue;
+
+            double closestDistance = std::numeric_limits<double>::max();
+            geometry_msgs::Point optimalTarget;
+            bool targetFound = false;
+
+            for (const auto &centroid : frontierCentroids)
+            {
+                bool isBlacklisted = false;
+                for (const auto &failed_pt : failedGoalPoints_)
+                {
+                    if (std::hypot(centroid.x - failed_pt.x, centroid.y - failed_pt.y) < 1.0)
+                    {
+                        isBlacklisted = true;
+                        break;
+                    }
+                }
+                if (isBlacklisted) continue;
+
+                bool isAlreadyAssigned = false;
+                for (int j = 0; j < robotCount_; ++j)
+                {
+                    if (isRobotActive_[j] && std::hypot(centroid.x - activeGoals_[j].x, centroid.y - activeGoals_[j].y) < 0.5)
+                    {
+                        isAlreadyAssigned = true;
+                        break;
+                    }
+                }
+                if (isAlreadyAssigned) continue;
+
+                double distanceToTarget = std::hypot(currentRobotPose.x - centroid.x, currentRobotPose.y - centroid.y);
+                if (distanceToTarget < closestDistance)
+                {
+                    closestDistance = distanceToTarget;
+                    optimalTarget = centroid;
+                    targetFound = true;
+                }
+            }
+
+            if (targetFound)
+            {
+                move_base_msgs::MoveBaseGoal goalMsg;
+                goalMsg.target_pose.header.frame_id = "map";
+                goalMsg.target_pose.header.stamp = ros::Time::now();
+                goalMsg.target_pose.pose.position = optimalTarget;
+                goalMsg.target_pose.pose.orientation.w = 1.0;
+
+                // Modern C++ lambda kullanarak hedefi gönder ve callback'i bağla
+                moveBaseClients_[i]->sendGoal(goalMsg, 
+                    [this, i](const actionlib::SimpleClientGoalState& state, const move_base_msgs::MoveBaseResultConstPtr& result) {
+                        this->onGoalCompletion(state, result, i);
+                    });
+
+                isRobotActive_[i] = true;
+                activeGoals_[i] = optimalTarget;
+                ROS_INFO("Robot %d icin yeni gorev atandi: [x: %.2f, y: %.2f]", i, optimalTarget.x, optimalTarget.y);
+            }
+        }
+    }
+}
+
+// Bir robotun mevcut konumunu TF sisteminden sorgular
+geometry_msgs::Point FrontierExplorerNode::queryRobotPose(int robot_index)
+{
+    geometry_msgs::TransformStamped transform;
     geometry_msgs::Point position;
     try
     {
-        // Robotun 'base_footprint' frame'inin 'map' frame'ine göre transformunu al
-        transformStamped = tf_buffer_.lookupTransform("map", robot_names_[robot_index] + "/base_footprint", ros::Time(0));
-        position.x = transformStamped.transform.translation.x;
-        position.y = transformStamped.transform.translation.y;
-        position.z = 0; // 2D ortamdayız
+        std::string robotFrame = robotNamespaces_[robot_index] + "/base_footprint";
+        transform = transformBuffer_.lookupTransform("map", robotFrame, ros::Time(0));
+        position.x = transform.transform.translation.x;
+        position.y = transform.transform.translation.y;
+        position.z = 0;
     }
     catch (tf2::TransformException &ex)
     {
-        ROS_WARN("Robot %d icin transform alinamadi: %s", robot_index, ex.what());
+        ROS_WARN("Robot %d icin konum donusumu alinamadi: %s", robot_index, ex.what());
         position.x = std::numeric_limits<double>::infinity();
         position.y = std::numeric_limits<double>::infinity();
     }
     return position;
 }
 
-std::vector<geometry_msgs::Point> MultiRobotExplorer::findFrontiers()
+// Haritadaki bilinmeyen ve bilinen alanlar arasındaki sınırları tespit eder
+std::vector<geometry_msgs::Point> FrontierExplorerNode::identifyExplorationBoundaries()
 {
-    std::vector<geometry_msgs::Point> frontiers;
-    if (!map_received_)
-        return frontiers;
+    std::vector<geometry_msgs::Point> boundaryPoints;
+    if (!isMapReady_) return boundaryPoints;
 
-    const auto &map_data = current_map_.data;
-    const auto &map_info = current_map_.info;
-    const unsigned int width = map_info.width;
-    const unsigned int height = map_info.height;
+    const auto &gridData = latestMapData_.data;
+    const auto &mapMetadata = latestMapData_.info;
+    const unsigned int mapWidth = mapMetadata.width;
+    const unsigned int mapHeight = mapMetadata.height;
 
-    // haritadaki her hücreyi dolaş
-    for (unsigned int y = 1; y < height - 1; ++y)
+    // Harita hücreleri üzerinde iterasyon yap (kenarları atlayarak)
+    for (unsigned int y = 1; y < mapHeight - 1; ++y)
     {
-        for (unsigned int x = 1; x < width - 1; ++x)
+        for (unsigned int x = 1; x < mapWidth - 1; ++x)
         {
-            unsigned int i = y * width + x;
+            // Hücre boş (0) değilse atla
+            if (gridData[y * mapWidth + x] != 0) continue;
 
-            if (map_data[i] != 0)
-                continue;
-
-            bool has_unknown_neighbor = false;
+            bool hasUnknownNeighbor = false;
+            // 8 komşuyu kontrol et
             for (int dy = -1; dy <= 1; ++dy)
             {
                 for (int dx = -1; dx <= 1; ++dx)
                 {
-                    if (dx == 0 && dy == 0)
-                        continue;
-                    unsigned int neighbor_i = (y + dy) * width + (x + dx);
-                    if (map_data[neighbor_i] == -1)
+                    if (dx == 0 && dy == 0) continue;
+                    
+                    if (gridData[(y + dy) * mapWidth + (x + dx)] == -1) // Bilinmeyen komşu
                     {
-                        has_unknown_neighbor = true;
+                        hasUnknownNeighbor = true;
                         break;
                     }
                 }
-                if (has_unknown_neighbor)
-                    break;
+                if (hasUnknownNeighbor) break;
             }
 
-            if (has_unknown_neighbor)
+            if (hasUnknownNeighbor)
             {
                 geometry_msgs::Point p;
-                p.x = map_info.origin.position.x + (x + 0.5) * map_info.resolution;
-                p.y = map_info.origin.position.y + (y + 0.5) * map_info.resolution;
+                p.x = mapMetadata.origin.position.x + (x + 0.5) * mapMetadata.resolution;
+                p.y = mapMetadata.origin.position.y + (y + 0.5) * mapMetadata.resolution;
                 p.z = 0;
-                frontiers.push_back(p);
+                boundaryPoints.push_back(p);
             }
         }
     }
-    return frontiers;
+    return boundaryPoints;
 }
 
-std::vector<geometry_msgs::Point> MultiRobotExplorer::clusterFrontiers(const std::vector<geometry_msgs::Point> &frontiers, double distance_threshold)
+// Sınır noktalarını belirli bir yarıçap içinde kümeleyerek merkezlerini bulur
+std::vector<geometry_msgs::Point> FrontierExplorerNode::groupFrontierPoints(const std::vector<geometry_msgs::Point> &frontiers, double clustering_radius)
 {
-    std::vector<geometry_msgs::Point> centroids;
-    if (frontiers.empty())
-        return centroids;
+    std::vector<geometry_msgs::Point> clusterCenters;
+    if (frontiers.empty()) return clusterCenters;
 
-    std::vector<bool> visited(frontiers.size(), false);
+    std::vector<bool> processed(frontiers.size(), false);
 
     for (size_t i = 0; i < frontiers.size(); ++i)
     {
-        if (visited[i])
-            continue;
+        if (processed[i]) continue;
 
-        std::vector<geometry_msgs::Point> current_cluster;
-        std::vector<size_t> queue;
-
-        queue.push_back(i);
-        visited[i] = true;
+        std::vector<geometry_msgs::Point> currentCluster;
+        std::vector<size_t> processingQueue;
+        
+        processingQueue.push_back(i);
+        processed[i] = true;
 
         size_t head = 0;
-        while (head < queue.size())
+        while(head < processingQueue.size())
         {
-            size_t current_idx = queue[head++];
-            current_cluster.push_back(frontiers[current_idx]);
+            size_t currentIndex = processingQueue[head++];
+            currentCluster.push_back(frontiers[currentIndex]);
 
             for (size_t j = 0; j < frontiers.size(); ++j)
             {
-                if (visited[j])
-                    continue;
+                if (processed[j]) continue;
 
-                double dist = std::hypot(frontiers[current_idx].x - frontiers[j].x, frontiers[current_idx].y - frontiers[j].y);
-                if (dist < distance_threshold)
+                double dist = std::hypot(frontiers[currentIndex].x - frontiers[j].x, frontiers[currentIndex].y - frontiers[j].y);
+                if (dist < clustering_radius)
                 {
-                    visited[j] = true;
-                    queue.push_back(j);
+                    processed[j] = true;
+                    processingQueue.push_back(j);
                 }
             }
         }
 
-        geometry_msgs::Point centroid;
-        for (const auto &p : current_cluster)
+        if (!currentCluster.empty())
         {
-            centroid.x += p.x;
-            centroid.y += p.y;
-        }
-        centroid.x /= current_cluster.size();
-        centroid.y /= current_cluster.size();
-        centroids.push_back(centroid);
-    }
-
-    return centroids;
-}
-
-void MultiRobotExplorer::goalDoneCallback(const actionlib::SimpleClientGoalState &state, const move_base_msgs::MoveBaseResultConstPtr &result, int robot_index)
-{
-    if (state == actionlib::SimpleClientGoalState::SUCCEEDED)
-    {
-        ROS_INFO("Robot %d hedefine ulasti.", robot_index);
-    }
-    else
-    {
-        ROS_WARN("Robot %d hedefine ulasamadi. Durum: %s", robot_index, state.toString().c_str());
-        ROS_INFO("Hedef [x:%.2f, y:%.2f] kara listeye eklendi.", assigned_frontiers_[robot_index].x, assigned_frontiers_[robot_index].y);
-        blacklisted_frontiers_.push_back(assigned_frontiers_[robot_index]);
-    }
-    robot_is_busy_[robot_index] = false;
-}
-
-void MultiRobotExplorer::assignGoals()
-{
-    if (!map_received_)
-    {
-        ROS_INFO_THROTTLE(5, "Harita henuz alinmadi, hedef atama erteleniyor.");
-        return;
-    }
-
-    auto all_frontiers = findFrontiers();
-    if (all_frontiers.empty())
-    {
-        ROS_INFO_THROTTLE(10, "Kesfedilecek yeni sinir bulunamadi. Kesif tamamlanmis olabilir.");
-        // robotlar meşgul değilse ve yeni sınır yoksa keşfi sonlandırıyoruz
-        bool all_idle = true;
-        for (const auto &busy : robot_is_busy_)
-            if (busy)
-                all_idle = false;
-        if (all_idle)
-        {
-            ROS_INFO_NAMED("explorer", "Tum robotlar bosta ve yeni sinir yok. Kesif tamamlandi!");
-            ros::shutdown();
-        }
-        return;
-    }
-    auto frontier_centroids = clusterFrontiers(all_frontiers, 1.0);
-
-    for (int i = 0; i < num_robots_; ++i)
-    {
-        if (!robot_is_busy_[i])
-        {
-            geometry_msgs::Point robot_pos = getRobotPosition(i);
-            if (!std::isfinite(robot_pos.x))
-                continue;
-
-            double min_dist = std::numeric_limits<double>::max();
-            geometry_msgs::Point best_frontier;
-            bool frontier_found = false;
-
-            for (const auto &frontier : frontier_centroids)
+            geometry_msgs::Point center;
+            for (const auto &p : currentCluster)
             {
-                // blacklist ile takılmaları atlamaya çalıştım. bazen etrafında dönerek kalıyorlar.
-                // kara listeye alınmış sınır noktalarına yakın olanları atla.
-                bool is_blacklisted = false;
-                for (const auto &blacklisted_pt : blacklisted_frontiers_)
-                {
-                    double dist_to_blacklisted = std::hypot(frontier.x - blacklisted_pt.x, frontier.y - blacklisted_pt.y);
-                    if (dist_to_blacklisted < 1.0)
-                    {
-                        is_blacklisted = true;
-                        break;
-                    }
-                }
-                if (is_blacklisted)
-                    continue;
-
-                bool is_assigned = false;
-                for (int j = 0; j < num_robots_; ++j)
-                {
-                    if (robot_is_busy_[j])
-                    {
-                        double dist_to_assigned = std::hypot(frontier.x - assigned_frontiers_[j].x, frontier.y - assigned_frontiers_[j].y);
-                        if (dist_to_assigned < 0.5)
-                        {
-                            is_assigned = true;
-                            break;
-                        }
-                    }
-                }
-                if (is_assigned)
-                    continue;
-
-                double dist = std::hypot(robot_pos.x - frontier.x, robot_pos.y - frontier.y);
-                if (dist < min_dist)
-                {
-                    min_dist = dist;
-                    best_frontier = frontier;
-                    frontier_found = true;
-                }
+                center.x += p.x;
+                center.y += p.y;
             }
-
-            if (frontier_found)
-            {
-                move_base_msgs::MoveBaseGoal goal;
-                goal.target_pose.header.frame_id = "map";
-                goal.target_pose.header.stamp = ros::Time::now();
-                goal.target_pose.pose.position = best_frontier;
-                goal.target_pose.pose.orientation.w = 1.0;
-
-                action_clients_[i]->sendGoal(goal, boost::bind(&MultiRobotExplorer::goalDoneCallback, this, _1, _2, i));
-
-                robot_is_busy_[i] = true;
-                assigned_frontiers_[i] = best_frontier;
-                ROS_INFO("Robot %d icin yeni hedef atandi: [x: %.2f, y: %.2f]", i, best_frontier.x, best_frontier.y);
-            }
+            center.x /= currentCluster.size();
+            center.y /= currentCluster.size();
+            clusterCenters.push_back(center);
         }
     }
+    return clusterCenters;
 }
 
-void MultiRobotExplorer::explore()
-{
-    ros::Rate rate(1.0);
-    while (ros::ok())
-    {
-        assignGoals();
-        ros::spinOnce();
-        rate.sleep();
-    }
-}
-
+// Ana program başlangıç noktası
 int main(int argc, char **argv)
 {
-    ros::init(argc, argv, "multi_robot_explorer_node");
+    ros::init(argc, argv, "frontier_explorer_node");
     ros::NodeHandle nh("~");
 
-    MultiRobotExplorer explorer(nh);
-    explorer.explore();
+    FrontierExplorerNode explorer(nh);
+    explorer.runExplorationLoop();
 
     return 0;
 }
