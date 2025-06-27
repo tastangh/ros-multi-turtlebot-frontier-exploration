@@ -1,12 +1,12 @@
 # multi-tb3-frontier-explore
 
-## 📘 Proje Tanımı
+## Proje Tanımı
 
 Bu proje, ROS Noetic ortamında dört adet TurtleBot3 (burger modeli) robot ile **çok robotlu frontier tabanlı keşif sistemi** geliştirmektedir. Her robot `gmapping` ile SLAM gerçekleştirir, `multirobot_map_merge` ile haritalar birleştirilir ve `move_base` altyapısı ile keşif yapılır.
 
 ---
 
-## 📦 Gereksinimler ve Kurulum
+##  Gereksinimler ve Kurulum
 
 ### 1. Gerekli Paketlerin Kurulumu
 
@@ -48,7 +48,7 @@ source ~/.bashrc
 
 ---
 
-## 🚀 Simülasyonu Başlatma
+##  Simülasyonu Başlatma
 
 ## Önerilen Yöntem: Tek Komut ile Başlatma
 
@@ -78,7 +78,7 @@ Her robot `/map` mesajına abone olur, frontier bölgelerini tespit eder, TF ile
 
 ---
 
-## 🔄 Çalışma Adımları
+## Çalışma Adımları
 
 1. `/map` mesajı alındığında frontier sınırları belirlenir.
 2. Bu sınırlar bölgelere ayrılır ve merkez noktaları hesaplanır.
