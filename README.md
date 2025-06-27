@@ -88,35 +88,25 @@ Her robot `/map` mesajına abone olur, frontier bölgelerini tespit eder, TF ile
 
 ---
 
-## 🖼️ Örnek Çıktılar
+## Örnek Çıktılar
 
-### 🧭 TF Ağaç Yapısı
+### TF Ağaç Yapısı
 ![tf_tree](tf_tree.png)
 
-### 🧪 Terminal Çıktısı
-![console_output](console_output.png)
-
-### 🚥 Keşif Başlangıcı
+### Keşif Başlangıcı
 ![start](exploration_start.png)
 
-### 🚗 Keşif İlerlemesi
+### Keşif İlerlemesi
 ![progress](exploration_progress.png)
+
+### Keşif Sonu
+![end](exploration_end.png)
 
 ---
 
-## 📎 Ek Bilgiler
+##  Ek Bilgiler
 
 - Rviz üzerinden her bir robota `/tb3_X/move_base_simple/goal` topic'ine hedef gönderilerek manuel test yapılabilir.
 - Hedef atama işlemleri `move_base` üzerinden action tabanlı gerçekleşir.
 - Sistem her robot için thread ile çalıştığından terminal çıktılarında `[tb3_0]`, `[tb3_1]` gibi etiketlemeler kullanılmıştır.
 
----
-
-## 📍 Proje Bilgisi
-
-- **Ders:** BLM6191 - Robotlar
-- **Üniversite:** Yıldız Teknik Üniversitesi
-- **Tarih:** Haziran 2025
-- **Teslim:** GitLab grubu üzerinden `.git` projesi halinde teslim edilecektir.
-
----
